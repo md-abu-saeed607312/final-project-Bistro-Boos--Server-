@@ -1,7 +1,8 @@
-require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 const port = process.env.PORT || 5000;
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -27,9 +28,116 @@ async function run() {
     const reviewsCollectionDB = client.db("bistroDb").collection("reviews");
     const cartCollectionDB = client.db("bistroDb").collection("carts");
 
+
     app.get("/", (req, res) => {
       res.send("Hello from Bistro Boss Restaurant!");
     });
+
+    //jwt releted api
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
+
+    //middlewares
+    const verifyToken=(req,res,next)=>{
+      console.log('inside verify token',req.headers);
+      //Condition: token থাকলে তোমাকে চিনি না থাকলে চিনি না
+      if(!req.headers.authorization){
+        return res.status(401).send({message:"unauthor Access"})
+       }
+
+       const token=req.headers.authorization.split(' ')[1]
+       
+       jwt.verify(token,process.env.ACCESS_TOKEN_SECRET, (err, decoded)=> {
+    
+        if(err){
+          return res.status(401).send({message:'unauthor Access'})
+        }
+        req.decoded=decoded
+        next()
+      });
+    }
+
+    // use verify admin after verifyToken
+    const verifyAdmin=async(req,res,next)=>{
+      const email=req.decoded.email;
+      const query={email:email}
+      const user=await userCollectionDB.findOne(query)
+      const isAdmin=user?.role==="admin";
+      if(!isAdmin){
+        return res.status(403).send({message:'forbiden access'})
+      }
+      next()
+    }
+
+
+
+    // ---------Registation User Info  (Start api)------------
+    app.get("/userinfo",verifyToken,verifyAdmin,async (req, res) => {
+      // আমরা চাইলে এখান থেকেও token verify করতে পারি 
+      const result = await userCollectionDB.find().toArray();
+      res.send(result);
+    });
+
+
+    app.get('/userinfo/admin/:email',verifyToken,async (req,res)=>{
+      const email=req.params.email
+      if(!email===req.decoded.email){
+        return res.status(403).send({message:"forbidden access"})
+      }
+      // যদি কন্ডিশন ঠিক থাকে তাহলে আমরা ডাটাবেইজে র্সাচ করবো
+      const query={email:email}
+      const user=await userCollectionDB.findOne(query)
+      let admin=false
+      if(user){
+        admin=user?.role==="admin"
+      }
+      res.send({admin})
+
+    })
+
+
+    app.post("/userinfo",async (req, res) => {
+      const userinfo = req.body;
+      const query = { email: userinfo.email };
+      const existinfUser = await userCollectionDB.findOne(query);
+      //এক ইমেইল দিয়ে google login দুইবার করলে  তা ডাটাবেজে একবার ইনসার্ট হবে
+      //you can do this many ways(1.email uniqe,2.upsert,3.simple checking)
+      if (existinfUser) {
+        return res.send({ message: "user already exists" });
+      }
+      const result = await userCollectionDB.insertOne(userinfo);
+      res.send(result);
+    });
+
+    app.patch("/userinfo/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          //role Database থেকে পাই
+          role: "admin",
+        },
+      };
+
+      const result = await userCollectionDB.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.delete("/userinfo/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await userCollectionDB.deleteOne(query);
+      res.send(result);
+    });
+
+    // ---------Registation User Info  (End api)------------
+
+    
 
     app.get("/menu", async (req, res) => {
       const result = await menuCollectionDB.find().toArray();
@@ -63,34 +171,6 @@ async function run() {
       res.send(result);
     });
     // ---------Add to carts Collections (End)------------
-
-
-    // ---------Registation User Info  (Start api)------------
-    app.post("/userinfo", async (req, res) => {
-      const userinfo = req.body;
-      const query = { email: userinfo.email };
-      const existinfUser = await userCollectionDB.findOne(query);
-      //এক ইমেইল দিয়ে google login দুইবার করলে  তা ডাটাবেজে একবার ইনসার্ট হবে
-      //you can do this many ways(1.email uniqe,2.upsert,3.simple checking)
-      if (existinfUser) {
-        return res.send({ message: "user already exists" });
-      }
-      const result = await userCollectionDB.insertOne(userinfo);
-      res.send(result);
-    });
-
-
-    app.get("/userinfo",async(req,res)=>{
-      const result= await userCollectionDB.find().toArray()
-      res.send(result)
-    })
-    // ---------Registation User Info  (End api)------------
-
-
-
-
-
-    
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
