@@ -144,6 +144,13 @@ async function run() {
       res.send(result);
     });
 
+    app.post("/menu",verifyToken,verifyAdmin,async(req,res)=>{
+      const item=req.body
+      const result=await menuCollectionDB.insertOne(item)
+      res.send(result)
+
+    })
+
     app.get("/reviews", async (req, res) => {
       const result = reviewsCollectionDB.find();
       const resul = await result.toArray();
