@@ -4,6 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 // middlewares
@@ -27,7 +28,7 @@ async function run() {
     const menuCollectionDB = client.db("bistroDb").collection("menu");
     const reviewsCollectionDB = client.db("bistroDb").collection("reviews");
     const cartCollectionDB = client.db("bistroDb").collection("carts");
-
+    const paymentCollectionDB = client.db("bistroDb").collection("payment");
 
     app.get("/", (req, res) => {
       res.send("Hello from Bistro Boss Restaurant!");
@@ -43,65 +44,59 @@ async function run() {
     });
 
     //middlewares
-    const verifyToken=(req,res,next)=>{
-      console.log('inside verify token',req.headers);
+    const verifyToken = (req, res, next) => {
+      console.log("inside verify token", req.headers);
       //Condition: token থাকলে তোমাকে চিনি না থাকলে চিনি না
-      if(!req.headers.authorization){
-        return res.status(401).send({message:"unauthor Access"})
-       }
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthor Access" });
+      }
 
-       const token=req.headers.authorization.split(' ')[1]
-       
-       jwt.verify(token,process.env.ACCESS_TOKEN_SECRET, (err, decoded)=> {
-    
-        if(err){
-          return res.status(401).send({message:'unauthor Access'})
+      const token = req.headers.authorization.split(" ")[1];
+
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: "unauthor Access" });
         }
-        req.decoded=decoded
-        next()
+        req.decoded = decoded;
+        next();
       });
-    }
+    };
 
     // use verify admin after verifyToken
-    const verifyAdmin=async(req,res,next)=>{
-      const email=req.decoded.email;
-      const query={email:email}
-      const user=await userCollectionDB.findOne(query)
-      const isAdmin=user?.role==="admin";
-      if(!isAdmin){
-        return res.status(403).send({message:'forbiden access'})
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollectionDB.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbiden access" });
       }
-      next()
-    }
-
-
+      next();
+    };
 
     // ---------Registation User Info  (Start api)------------
-    app.get("/userinfo",verifyToken,verifyAdmin,async (req, res) => {
-      // আমরা চাইলে এখান থেকেও token verify করতে পারি 
+    app.get("/userinfo", verifyToken, verifyAdmin, async (req, res) => {
+      // আমরা চাইলে এখান থেকেও token verify করতে পারি
       const result = await userCollectionDB.find().toArray();
       res.send(result);
     });
 
-
-    app.get('/userinfo/admin/:email',verifyToken,async (req,res)=>{
-      const email=req.params.email
-      if(!email===req.decoded.email){
-        return res.status(403).send({message:"forbidden access"})
+    app.get("/userinfo/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (!email === req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
       }
       // যদি কন্ডিশন ঠিক থাকে তাহলে আমরা ডাটাবেইজে র্সাচ করবো
-      const query={email:email}
-      const user=await userCollectionDB.findOne(query)
-      let admin=false
-      if(user){
-        admin=user?.role==="admin"
+      const query = { email: email };
+      const user = await userCollectionDB.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === "admin";
       }
-      res.send({admin})
+      res.send({ admin });
+    });
 
-    })
-
-
-    app.post("/userinfo",async (req, res) => {
+    app.post("/userinfo", async (req, res) => {
       const userinfo = req.body;
       const query = { email: userinfo.email };
       const existinfUser = await userCollectionDB.findOne(query);
@@ -137,24 +132,53 @@ async function run() {
 
     // ---------Registation User Info  (End api)------------
 
-    
-
     app.get("/menu", async (req, res) => {
       const result = await menuCollectionDB.find().toArray();
       res.send(result);
     });
 
-    app.post("/menu",verifyToken,verifyAdmin,async(req,res)=>{
-      const item=req.body
-      const result=await menuCollectionDB.insertOne(item)
-      res.send(result)
+    app.get("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollectionDB.findOne(query);
+      res.send(result);
+    });
 
-    })
+    app.patch("/menu/:id", async (req, res) => {
+      const item = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          name: item.name,
+          price: item.price,
+          category: item.category,
+          recipe: item.recipe,
+          image: item.image,
+        },
+      };
+      const result = await menuCollectionDB.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+      const item = req.body;
+      const result = await menuCollectionDB.insertOne(item);
+      res.send(result);
+    });
 
     app.get("/reviews", async (req, res) => {
       const result = reviewsCollectionDB.find();
       const resul = await result.toArray();
       res.send(resul);
+    });
+
+    app.delete("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log("saeed", id);
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollectionDB.deleteOne(query);
+      res.send(result);
     });
 
     // ---------Add to carts Collections (Start)------------
@@ -178,6 +202,49 @@ async function run() {
       res.send(result);
     });
     // ---------Add to carts Collections (End)------------
+
+    // Payment Srip( Start )
+
+    app.get("/payments/:email", verifyToken, async (req, res) => {
+      const query = { email: req.params.email };
+      if (req.params.email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden Access" });
+      }
+      const result = await paymentCollectionDB.find(query).toArray();
+      res.send(result);
+    });
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amounts = parseInt(price * 100);
+      console.log("Taka ------------------->", amounts);
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amounts,
+        currency: "usd",
+        // automatic_payment_methods: { enabled: true },
+        payment_method_types: ["card", "link"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
+
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollectionDB.insertOne(payment);
+
+      //carefully delete each item from the cart
+      console.log("payment info", payment);
+      const query = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
+
+      const deleteResult = await cartCollectionDB.deleteMany(query);
+      res.send({ paymentResult, deleteResult });
+    });
+
+    // Payment Srip( End )
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
