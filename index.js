@@ -203,6 +203,32 @@ async function run() {
     });
     // ---------Add to carts Collections (End)------------
 
+    // Admin Dashboard status(Start)
+    app.get("/admin-status", async (req, res) => {
+      const user = await userCollectionDB.estimatedDocumentCount();
+      const menu = await menuCollectionDB.estimatedDocumentCount();
+      const orders = await paymentCollectionDB.estimatedDocumentCount();
+
+      // const payment = await paymentCollectionDB.find().toArray();
+      // const revenue = payment.reduce((item, price) => item + price.price,0);
+      const result = await paymentCollectionDB
+        .aggregate([
+          {
+            $group: {
+              _id: null,
+              totalPrice: { $sum: "$price" },
+            },
+          },
+        ])
+        .toArray();
+
+      const totalrevenue = result.length > 0 ? result[0].totalPrice : 0;
+
+      res.send({ user, menu, orders, totalrevenue });
+    });
+
+    // Admin Dashboard status(End)
+
     // Payment Srip( Start )
 
     app.get("/payments/:email", verifyToken, async (req, res) => {
